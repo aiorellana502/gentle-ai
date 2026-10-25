@@ -10,11 +10,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/gentleman-programming/gentle-ai/v4/internal/agents"
 	"github.com/gentleman-programming/gentle-ai/v4/internal/components/engram"
+	"github.com/gentleman-programming/gentle-ai/v4/internal/components/filemerge"
 	"github.com/gentleman-programming/gentle-ai/v4/internal/doctor"
 	"github.com/gentleman-programming/gentle-ai/v4/internal/model"
 	"github.com/gentleman-programming/gentle-ai/v4/internal/opencode"
@@ -84,9 +86,10 @@ var (
 	pathDirsFn          = func() []string {
 		return filepath.SplitList(os.Getenv("PATH"))
 	}
-	osExecutableDoctor = os.Executable
-	engramProbeStdioFn = engram.ProbeStdio
-	httpGetFn          = func(url string, timeout time.Duration) (int, error) {
+	osExecutableDoctor    = os.Executable
+	doctorAgentRegistryFn = agents.NewDefaultRegistry
+	engramProbeStdioFn    = engram.ProbeStdio
+	httpGetFn             = func(url string, timeout time.Duration) (int, error) {
 		resp, err := (&http.Client{Timeout: timeout}).Get(url) //nolint:noctx
 		if err != nil {
 			return 0, err
@@ -124,6 +127,7 @@ func RunDoctor(ctx context.Context, w io.Writer) error {
 		doctor.Check{ID: doctor.CheckInstalledAssetVersion, Run: func(context.Context) doctor.Result { return checkInstalledAssetVersion(homeDir) }},
 		doctor.Check{ID: doctor.CheckEngramReachable, Run: func(ctx context.Context) doctor.Result { return checkEngramReachable(ctx, homeDir, installedAgents) }},
 		doctor.Check{ID: doctor.CheckDiskSpace, Run: func(context.Context) doctor.Result { return checkDiskSpace(homeDir) }},
+		doctor.Check{ID: doctor.CheckOrphanedManagedContent, Run: func(context.Context) doctor.Result { return checkOrphanedManagedContent(homeDir, installedState) }},
 	)
 	if installedState.BackgroundIntent == model.OpenCodeBackgroundOn && doctorGOOS != "windows" {
 		checks = append(checks, doctor.Check{ID: doctor.CheckOpenCodeProfile, Run: func(context.Context) doctor.Result {
@@ -853,6 +857,65 @@ func checkDiskSpace(homeDir string) CheckResult {
 			Detail: fmt.Sprintf("%d MB free on %s filesystem", freeMB, dir),
 		}
 	}
+}
+
+// checkOrphanedManagedContent reports agents excluded by a recorded
+// selection (#5583) whose system prompt file still carries a gentle-ai
+// managed section. `sync` correctly skips files outside the selection, so
+// nothing removes that leftover content; this surfaces it for a human
+// decision instead of leaving it silently stale.
+//
+// Before any selection is recorded, every detected agent is in scope by
+// design (#709's fallback) — nothing is excluded yet, so the check stays
+// silent rather than warning about the very agents that first sync wrote.
+func checkOrphanedManagedContent(homeDir string, installedState state.InstallState) CheckResult {
+	const id = doctor.CheckOrphanedManagedContent
+	if !installedState.SelectionConfigured {
+		return CheckResult{Name: id, Status: CheckStatusPass, Detail: "no recorded agent selection — not applicable"}
+	}
+
+	registry, err := doctorAgentRegistryFn()
+	if err != nil {
+		return CheckResult{Name: id, Status: CheckStatusWarn, Detail: "could not build the agent registry: " + err.Error()}
+	}
+
+	selected := make(map[model.AgentID]struct{}, len(installedState.InstalledAgents))
+	for _, agentID := range installedState.InstalledAgents {
+		selected[model.AgentID(agentID)] = struct{}{}
+	}
+
+	var orphaned []string
+	for _, agentID := range registry.SupportedAgents() {
+		if _, ok := selected[agentID]; ok {
+			continue
+		}
+		adapter, ok := registry.Get(agentID)
+		if !ok || !adapter.SupportsSystemPrompt() {
+			continue
+		}
+		path := adapter.SystemPromptFile(homeDir)
+		if path == "" {
+			continue
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			continue // absent or unreadable: nothing to report
+		}
+		if filemerge.HasManagedSection(string(content)) {
+			orphaned = append(orphaned, fmt.Sprintf("%s (%s)", agentID, path))
+		}
+	}
+
+	if len(orphaned) > 0 {
+		sort.Strings(orphaned)
+		return CheckResult{
+			Name:   id,
+			Status: CheckStatusWarn,
+			Detail: fmt.Sprintf("%d excluded agent(s) still carry a gentle-ai managed section in their system prompt: %s", len(orphaned), strings.Join(orphaned, ", ")),
+			Remedy: doctor.NewRemedy(doctor.RemedyInspectOrphanedContent, "Review and remove the gentle-ai managed section(s) from the listed file(s) if that agent should no longer receive gentle-ai content"),
+		}
+	}
+	return CheckResult{Name: id, Status: CheckStatusPass, Detail: "no excluded agent carries leftover gentle-ai managed content"}
 }
 
 // renderDoctorReport writes a human-readable report to w.

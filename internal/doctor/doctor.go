@@ -7,11 +7,12 @@ import "context"
 type CheckID string
 
 const (
-	CheckStateJSON             CheckID = "state:json"
-	CheckInstalledAssetVersion CheckID = "installed:asset_version"
-	CheckEngramReachable       CheckID = "engram:reachable"
-	CheckDiskSpace             CheckID = "disk:space"
-	CheckOpenCodeProfile       CheckID = "opencode:managed_profile"
+	CheckStateJSON              CheckID = "state:json"
+	CheckInstalledAssetVersion  CheckID = "installed:asset_version"
+	CheckEngramReachable        CheckID = "engram:reachable"
+	CheckDiskSpace              CheckID = "disk:space"
+	CheckOpenCodeProfile        CheckID = "opencode:managed_profile"
+	CheckOrphanedManagedContent CheckID = "sync:orphaned_content"
 )
 
 // ToolCheckID returns the stable check identifier for a tool binary.
@@ -30,17 +31,18 @@ const (
 type RemedyID string
 
 const (
-	RemedyInstallTool        RemedyID = "install-tool"
-	RemedyRemoveDuplicates   RemedyID = "remove-duplicate-tools"
-	RemedyInstall            RemedyID = "install"
-	RemedyRepairState        RemedyID = "repair-state"
-	RemedyInspectStateAccess RemedyID = "inspect-state-access"
-	RemedySync               RemedyID = "sync"
-	RemedyEditShellPath      RemedyID = "edit-shell-path"
-	RemedyReorderPath        RemedyID = "reorder-path"
-	RemedyStartEngram        RemedyID = "start-engram"
-	RemedyInspectEngram      RemedyID = "inspect-engram"
-	RemedyFreeDiskSpace      RemedyID = "free-disk-space"
+	RemedyInstallTool            RemedyID = "install-tool"
+	RemedyRemoveDuplicates       RemedyID = "remove-duplicate-tools"
+	RemedyInstall                RemedyID = "install"
+	RemedyRepairState            RemedyID = "repair-state"
+	RemedyInspectStateAccess     RemedyID = "inspect-state-access"
+	RemedySync                   RemedyID = "sync"
+	RemedyEditShellPath          RemedyID = "edit-shell-path"
+	RemedyReorderPath            RemedyID = "reorder-path"
+	RemedyStartEngram            RemedyID = "start-engram"
+	RemedyInspectEngram          RemedyID = "inspect-engram"
+	RemedyFreeDiskSpace          RemedyID = "free-disk-space"
+	RemedyInspectOrphanedContent RemedyID = "inspect-orphaned-content"
 )
 
 // RemedyCategory groups remedies by the resource they concern.
@@ -107,6 +109,8 @@ func NewRemedy(id RemedyID, description string) *Remedy {
 		r.Category, r.EligibilityReason = RemedyCategoryService, "external process and log ownership is unknown"
 	case RemedyFreeDiskSpace:
 		r.Category, r.EligibilityReason = RemedyCategoryStorage, "disk cleanup is user-owned"
+	case RemedyInspectOrphanedContent:
+		r.Category, r.EligibilityReason = RemedyCategoryConfiguration, "removing managed content from a deselected harness is user-owned"
 	default:
 		r.EligibilityReason = "remedy is not allowlisted"
 	}

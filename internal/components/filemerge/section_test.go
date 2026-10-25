@@ -14,6 +14,28 @@ func TestInjectMarkdownSection_EmptyFile(t *testing.T) {
 	}
 }
 
+func TestHasManagedSection(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{"empty", "", false},
+		{"plain user content", "# My own rules\n- Answer in English.\n", false},
+		{"persona section", "before\n<!-- gentle-ai:persona -->\nbody\n<!-- /gentle-ai:persona -->\nafter\n", true},
+		{"different section id", "<!-- gentle-ai:engram-protocol -->\nbody\n<!-- /gentle-ai:engram-protocol -->\n", true},
+		{"only the close marker, no open", "body\n<!-- /gentle-ai:persona -->\n", false},
+		{"unrelated html comment", "<!-- not-gentle-ai:persona -->\n", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := HasManagedSection(tt.content); got != tt.want {
+				t.Fatalf("HasManagedSection(%q) = %v, want %v", tt.content, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestExtractHTMLCommentSection(t *testing.T) {
 	content := "before\n<!-- section:model-small -->\nsmall body\n<!-- /section:model-small -->\nafter\n"
 	if got := ExtractHTMLCommentSection(content, "model-small"); got != "small body\n" {

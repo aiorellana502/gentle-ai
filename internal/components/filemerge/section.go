@@ -25,6 +25,14 @@ const (
 	closePrefix  = "<!-- /gentle-ai:"
 )
 
+// HasManagedSection reports whether content opens any gentle-ai managed
+// section, regardless of which section ID it carries. It does not require a
+// matching close marker: a lone or malformed open marker still means
+// gentle-ai wrote here.
+func HasManagedSection(content string) bool {
+	return strings.Contains(content, markerPrefix)
+}
+
 // legacyPersonaFingerprints are substrings that appear in the Gentleman persona
 // asset and reliably identify a stale free-text block written by an old installer
 // (or manually copied) before the marker-based injection system was in use.
